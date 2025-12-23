@@ -1,0 +1,9 @@
+PORT=3001
+CRONOS_RPC_URL=https://evm-t3.cronos.org
+# Private key for the Agent wallet that will sign transactions
+PRIVATE_KEY=your_private_key_here
+# Address of the deployed Settlement contract
+SETTLEMENT_CONTRACT_ADDRESS=0x...
+# Address of the x402 Facilitator (if applicable)
+X402_FACILITATOR_ADDRESS=0x...
+

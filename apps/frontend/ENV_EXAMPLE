@@ -1,0 +1,6 @@
+NEXT_PUBLIC_API_URL=http://localhost:3001
+# WalletConnect Project ID for RainbowKit/Wagmi
+NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID=your_project_id
+# Chain ID for Cronos Testnet
+NEXT_PUBLIC_CHAIN_ID=338
+

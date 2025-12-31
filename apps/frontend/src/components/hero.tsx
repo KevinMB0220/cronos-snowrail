@@ -10,7 +10,7 @@ export function Hero() {
   }, []);
 
   return (
-    <div className="relative overflow-hidden bg-gradient-to-b from-gray-900 via-blue-900/20 to-gray-900 min-h-screen flex items-center justify-center">
+    <div className="relative overflow-hidden bg-gradient-to-b from-slate-950 via-blue-900/40 to-slate-900 min-h-screen flex items-center justify-center">
       {/* Animated background elements */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute -top-40 -right-40 w-80 h-80 bg-blue-500/20 rounded-full blur-3xl animate-pulse" />

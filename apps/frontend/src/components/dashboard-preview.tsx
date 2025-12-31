@@ -10,7 +10,7 @@ interface DashboardCard {
 }
 
 export function DashboardPreview() {
-  const [cards, setCards] = useState<DashboardCard[]>([
+  const [cards] = useState<DashboardCard[]>([
     { label: 'Total Assets', value: '$2.5M', change: '+12.5%', isPositive: true },
     { label: 'AI Decisions Today', value: '847', change: '+23%', isPositive: true },
     { label: 'Success Rate', value: '94.2%', change: '+2.1%', isPositive: true },
@@ -24,7 +24,7 @@ export function DashboardPreview() {
   }, []);
 
   return (
-    <section className="py-24 bg-gradient-to-b from-gray-900 to-blue-900/10 relative overflow-hidden">
+    <section className="py-24 bg-gradient-to-b from-slate-950 via-blue-950/30 to-slate-900 relative overflow-hidden">
       {/* Background decoration */}
       <div className="absolute inset-0 overflow-hidden">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-500/5 rounded-full blur-3xl" />

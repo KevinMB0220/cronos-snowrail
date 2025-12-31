@@ -15,7 +15,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-gradient-to-b from-slate-950 via-blue-950/30 to-slate-950 text-white font-sans">
+      <body className="min-h-screen bg-slate-950 text-white font-sans">
         <Providers>
           <Navbar />
           <main className="pt-20 w-full">

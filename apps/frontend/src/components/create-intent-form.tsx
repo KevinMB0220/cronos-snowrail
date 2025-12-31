@@ -29,8 +29,8 @@ export function CreateIntentForm() {
       newErrors.recipient = 'Recipient address required';
     }
 
-    if (formData.condition.type === 'price-below' && !formData.condition.value) {
-      newErrors.conditionValue = 'Price threshold required';
+    if (!formData.condition.value || isNaN(Number(formData.condition.value))) {
+      newErrors.conditionValue = 'Condition value required';
     }
 
     setErrors(newErrors);
@@ -157,33 +157,31 @@ export function CreateIntentForm() {
         </div>
 
         {/* Condition Value */}
-        {formData.condition.type === 'price-below' && (
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Price Threshold
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={formData.condition.value}
-              onChange={(e) =>
-                setFormData({
-                  ...formData,
-                  condition: {
-                    ...formData.condition,
-                    value: e.target.value,
-                  },
-                })
-              }
-              placeholder="0.00"
-              className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              disabled={isPending}
-            />
-            {errors.conditionValue && (
-              <p className="text-red-400 text-sm mt-1">{errors.conditionValue}</p>
-            )}
-          </div>
-        )}
+        <div>
+          <label className="block text-sm font-medium text-gray-300 mb-2">
+            {formData.condition.type === 'price-below' ? 'Price Threshold' : 'Condition Value'}
+          </label>
+          <input
+            type="number"
+            step="0.01"
+            value={formData.condition.value}
+            onChange={(e) =>
+              setFormData({
+                ...formData,
+                condition: {
+                  ...formData.condition,
+                  value: e.target.value,
+                },
+              })
+            }
+            placeholder="0.00"
+            className="w-full px-4 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            disabled={isPending}
+          />
+          {errors.conditionValue && (
+            <p className="text-red-400 text-sm mt-1">{errors.conditionValue}</p>
+          )}
+        </div>
 
         {/* Error Message */}
         {error && (

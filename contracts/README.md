@@ -324,12 +324,26 @@ npm run test -- --reporter spec
 - **Explorer**: https://testnet.cronoscan.com
 - **Faucet**: https://cronos.org/faucet
 
+#### Contratos Desplegados en Testnet
+
+| Contrato | Dirección | Hash TX | Bloque |
+|----------|-----------|---------|--------|
+| Settlement | [`0xae6E14caD8D4f43947401fce0E4717b8D17b4382`](https://testnet.cronoscan.com/address/0xae6E14caD8D4f43947401fce0E4717b8D17b4382) | `0x50f2b9b1ca5bc192a1c99b2eb06ef49809bf7523e284cd7838bc9f1798a23e61` | 65354308 |
+
+**Executor (Backend Wallet)**: `0x40C7fa08031dB321245a2f96E6064D2cF269f18B`
+
 ### Cronos Mainnet
 
 - **Chain ID**: 25
 - **Currency**: CRO
 - **RPC**: https://evm-rpc.cronos.org
 - **Explorer**: https://cronoscan.com
+
+#### Contratos Desplegados en Mainnet
+
+| Contrato | Dirección | Hash TX | Bloque |
+|----------|-----------|---------|--------|
+| Settlement | Pendiente | - | - |
 
 ### Local (Hardhat)
 
@@ -367,11 +381,20 @@ https://cronos.org/faucet
 - **Solidity Docs**: https://docs.soliditylang.org
 - **ethers.js Docs**: https://docs.ethers.org/v6
 
-## 🔄 Próximos Pasos
+## 🔄 Estado del Proyecto
 
-1. **Issue #2**: Implementar lógica de transferencia con signature verification
-2. **Issue #3**: Agregar control de acceso (solo ejecutores autorizados)
-3. **Issue #4**: Tests completos y auditoría de seguridad
+### ✅ Completado
+
+- **Issue #1**: Hardhat setup y configuración básica
+- **Issue #2**: Implementar lógica de transferencia con signature verification (EIP-712)
+- **Issue #3**: Agregar control de acceso (solo ejecutores autorizados) y replay protection
+- **Issue #4**: Deployment script con validación y verificación en Cronoscan
+
+### ⏭️ Próximos Pasos
+
+- **Issue #5**: Backend Server Setup - Integración con Settlement contract
+- **Mainnet Deployment**: Deploy a Cronos Mainnet (después de pruebas exhaustivas)
+- **Auditoría de Seguridad**: Revisar con seguridad profesional antes de mainnet
 
 ## ✨ Contribuir
 

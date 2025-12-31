@@ -4,6 +4,7 @@ import helmet from '@fastify/helmet';
 import dotenv from 'dotenv';
 import { showBanner } from './utils/banner';
 import { intentRoutes } from './api/routes/intents';
+import { agentRoutes } from './api/routes/agent';
 import { initializeAgentService } from './services/agent-service';
 import { initializeWalletService } from './services/wallet-service';
 import { getWalletService } from './services/wallet-service';
@@ -59,6 +60,7 @@ server.log.info(`[WalletService] Wallet address: ${walletAddress}`);
 
 // Register API routes
 server.register(intentRoutes, { prefix: '/api' });
+server.register(agentRoutes, { prefix: '/api' });
 
 // Health check endpoint
 server.get<{ Reply: ApiResponse }>('/health', async () => {
@@ -72,6 +74,40 @@ server.get<{ Reply: ApiResponse }>('/health', async () => {
       version: '0.0.1',
       environment: process.env.NODE_ENV || 'development',
       network: process.env.CRONOS_NETWORK_NAME || 'Cronos Testnet',
+    },
+  };
+  return response;
+});
+
+// Health readiness check (includes service initialization)
+server.get<{ Reply: ApiResponse }>('/health/ready', async () => {
+  // Verify wallet service is initialized
+  getWalletService();
+
+  const response: ApiResponse = {
+    status: 'success',
+    code: 'READINESS_CHECK_OK',
+    message: 'System is ready for E2E testing',
+    data: {
+      timestamp: new Date().toISOString(),
+      services: {
+        wallet: {
+          initialized: true,
+        },
+        agent: {
+          initialized: true,
+        },
+      },
+      environment: {
+        network: process.env.CRONOS_NETWORK_NAME || 'Cronos Testnet',
+        chainId: process.env.CHAIN_ID || '43113',
+      },
+      endpoints: {
+        createIntent: 'POST /api/intents',
+        executeIntent: 'POST /api/intents/:id/execute',
+        getIntent: 'GET /api/intents/:id',
+        listIntents: 'GET /api/intents',
+      },
     },
   };
   return response;

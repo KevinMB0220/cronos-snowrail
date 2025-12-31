@@ -57,22 +57,89 @@ npm install
 
 ### 2. Environment Setup
 Configure `.env` files in each workspace using the provided examples:
-- `apps/backend/ENV_EXAMPLE` → `apps/backend/.env`
-- `apps/frontend/ENV_EXAMPLE` → `apps/frontend/.env.local`
-- `contracts/ENV_EXAMPLE` → `contracts/.env`
+- `apps/backend/.env.local` (already configured)
+- `apps/frontend/.env.local` (already configured)
+- `contracts/.env` (if deploying contracts)
 
 ### 3. Run Development
+
+**Terminal 1 - Backend (Port 4000):**
 ```bash
-# Starts Backend, Frontend, and Types compiler
+cd apps/backend
 npm run dev
+```
+
+**Terminal 2 - Frontend (Port 3000/3001):**
+```bash
+cd apps/frontend
+npm run dev
+```
+
+---
+
+## 🎬 Live Demo & E2E Testing
+
+### Quick 5-Minute Demo
+
+See [**DEMO.md**](./DEMO.md) for complete step-by-step instructions.
+
+**Quick summary:**
+1. Open http://localhost:3000 (or 3001)
+2. Connect MetaMask wallet (Cronos Testnet)
+3. Create a payment intent (0.1 CRO)
+4. Click "Trigger Agent"
+5. Agent executes transaction on-chain
+6. Verify on Cronoscan
+
+### Prerequisites for Demo
+
+- Backend running on **port 4000**
+- Frontend running on **port 3000 or 3001**
+- MetaMask wallet with **Cronos Testnet** configured (Chain ID: 338)
+- Wallet has testnet **CRO** for gas fees
+
+### E2E Flow Verification
+
+The complete flow includes:
+
+1. **Wallet Connection** - User connects MetaMask to frontend
+2. **Intent Creation** - User creates payment intent via form
+3. **Agent Evaluation** - Backend AI Agent evaluates conditions
+4. **On-Chain Execution** - Transaction executed via x402 Protocol
+5. **Confirmation** - Status updates, transaction on Cronoscan
+6. **Logging** - Backend logs all decisions with tracing
+
+### Verify Everything Works
+
+```bash
+# Check backend health
+curl http://localhost:4000/health
+
+# Check frontend loads
+curl http://localhost:3000
+
+# Check agent is ready
+curl http://localhost:4000/health/ready
 ```
 
 ---
 
 ## 🧪 Testing
 
+### Frontend Tests
 ```bash
-# Run contract tests
+cd apps/frontend
+npm run build  # TypeScript compilation check
+```
+
+### Backend Tests
+```bash
+cd apps/backend
+npm run test   # (if tests configured)
+```
+
+### Contract Tests
+```bash
 npm run test:contracts
 ```
 

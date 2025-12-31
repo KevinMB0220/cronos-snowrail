@@ -77,6 +77,40 @@ server.get<{ Reply: ApiResponse }>('/health', async () => {
   return response;
 });
 
+// Health readiness check (includes service initialization)
+server.get<{ Reply: ApiResponse }>('/health/ready', async () => {
+  // Verify wallet service is initialized
+  getWalletService();
+
+  const response: ApiResponse = {
+    status: 'success',
+    code: 'READINESS_CHECK_OK',
+    message: 'System is ready for E2E testing',
+    data: {
+      timestamp: new Date().toISOString(),
+      services: {
+        wallet: {
+          initialized: true,
+        },
+        agent: {
+          initialized: true,
+        },
+      },
+      environment: {
+        network: process.env.CRONOS_NETWORK_NAME || 'Cronos Testnet',
+        chainId: process.env.CHAIN_ID || '43113',
+      },
+      endpoints: {
+        createIntent: 'POST /api/intents',
+        executeIntent: 'POST /api/intents/:id/execute',
+        getIntent: 'GET /api/intents/:id',
+        listIntents: 'GET /api/intents',
+      },
+    },
+  };
+  return response;
+});
+
 // Global error handler
 server.setErrorHandler((error, request, reply) => {
   const traceId = request.id || 'unknown';

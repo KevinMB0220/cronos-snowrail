@@ -1,0 +1,63 @@
+/* RainbowKit Button Styling - Minimal Overrides */
+
+/* Main RainbowKit wrapper */
+[data-rk] {
+  color-scheme: dark;
+}
+
+/* Connect button styling - Disconnected state */
+[data-rk] button[type="button"] {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+/* Account/Connected state button styling */
+[data-rk] button[type="button"][aria-label*="Account"],
+[data-rk] button[type="button"][aria-label*="account"] {
+  padding: 8px 12px !important;
+  font-size: 12px !important;
+  min-height: 36px !important;
+}
+
+/* Close button (X) in modal - Enhanced visibility */
+[data-rk] button[aria-label="Close"],
+[data-rk] button[aria-label="close"] {
+  position: relative !important;
+  width: 40px !important;
+  height: 40px !important;
+  padding: 0 !important;
+  background: rgba(255, 255, 255, 0.1) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  cursor: pointer !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s ease !important;
+  border-radius: 6px !important;
+  z-index: 1001 !important;
+}
+
+/* Ensure SVG icon is visible in close button */
+[data-rk] button[aria-label="Close"] svg,
+[data-rk] button[aria-label="close"] svg {
+  width: 20px !important;
+  height: 20px !important;
+  color: rgba(255, 255, 255, 0.8) !important;
+  stroke-width: 2.5 !important;
+  opacity: 1 !important;
+  visibility: visible !important;
+}
+
+[data-rk] button[aria-label="Close"]:hover,
+[data-rk] button[aria-label="close"]:hover {
+  background: rgba(255, 255, 255, 0.15) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  color: white !important;
+}
+
+[data-rk] button[aria-label="Close"]:hover svg,
+[data-rk] button[aria-label="close"]:hover svg {
+  color: white !important;
+}

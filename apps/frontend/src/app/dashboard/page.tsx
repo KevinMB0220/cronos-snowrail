@@ -5,7 +5,7 @@ import { IntentList } from '@/components/intent-list';
 
 export default function Dashboard() {
   return (
-    <div className="min-h-screen bg-slate-950 py-12 px-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950/30 via-slate-900/20 to-slate-950/30 py-0 px-6 sm:px-8 lg:px-12 xl:px-16">
       <div className="max-w-6xl mx-auto">
         <div className="mb-12">
           <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-400 to-cyan-400 bg-clip-text text-transparent mb-3">

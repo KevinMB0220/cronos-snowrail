@@ -3,5 +3,9 @@
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 export function ConnectWalletButton() {
-  return <ConnectButton />;
+  return (
+    <div className="flex items-center justify-end">
+      <ConnectButton />
+    </div>
+  );
 }

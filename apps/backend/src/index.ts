@@ -9,6 +9,7 @@ import { initializeAgentService } from './services/agent-service';
 import { initializeWalletService } from './services/wallet-service';
 import { getWalletService } from './services/wallet-service';
 import { initializePriceService } from './services/price-service';
+import { initializeZKServices } from './zk';
 import { mcpPlugin } from './mcp';
 
 dotenv.config();
@@ -54,10 +55,11 @@ server.register(cors, {
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
 });
 
-// Initialize services
-initializeAgentService(server);
+// Initialize services (order matters: ZK and Price before Agent)
 initializeWalletService(server);
 initializePriceService(server);
+initializeZKServices(server);
+initializeAgentService(server); // Agent depends on ZK and Price services
 const walletAddress = getWalletService().getAddress();
 server.log.info(`[WalletService] Wallet address: ${walletAddress}`);
 
@@ -120,6 +122,12 @@ server.get<{ Reply: ApiResponse }>('/health/ready', async () => {
         endpoint: 'POST /mcp',
         toolsDiscovery: 'GET /mcp/tools',
         health: 'GET /mcp/health',
+      },
+      zk: {
+        verifyProvider: process.env.VERIFY_PROVIDER || 'mock',
+        zkProvider: process.env.ZK_PROVIDER || 'mock',
+        verificationEnabled: process.env.REQUIRE_VERIFICATION === 'true',
+        zkProofsEnabled: process.env.USE_ZK_PROOFS === 'true',
       },
     },
   };

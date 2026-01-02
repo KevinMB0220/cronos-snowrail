@@ -2,7 +2,8 @@ import { PaymentIntent, AgentDecision } from '@cronos-x402/shared-types';
 import { FastifyInstance } from 'fastify';
 import { ethers } from 'ethers';
 import { getWalletService } from '../services/wallet-service';
-import { createIntentMessage, generateIntentHash } from '../utils/crypto';
+import { generateIntentHash, computeEIP712Digest } from '../utils/crypto';
+import { decodeCustomError } from '../utils/error-decoder';
 
 // Settlement Contract ABI - minimal interface for executeSettlement
 const SETTLEMENT_CONTRACT_ABI = [
@@ -64,19 +65,16 @@ export class Orchestrator {
       const walletService = getWalletService();
       const walletAddress = walletService.getAddress();
 
-      // Create intent message with replay protection
-      const chainId = parseInt(process.env.CHAIN_ID || '43113', 10);
-      const nonce = await walletService.getNonce();
-
-      const messageText = createIntentMessage(
-        intent.intentId,
-        intent.amount,
-        intent.recipient,
-        chainId,
-        nonce
-      );
+      // Setup chain ID and settlement contract address
+      const chainId = parseInt(process.env.CHAIN_ID || '338', 10);
+      const settlementContractAddress = process.env.SETTLEMENT_CONTRACT_ADDRESS;
+      if (!settlementContractAddress) {
+        throw new Error('SETTLEMENT_CONTRACT_ADDRESS not configured');
+      }
 
       // Generate intent hash for contract execution
+      // Use a fixed nonce of 0 for the first execution (contract tracks per-intent nonce)
+      const nonce = 0;
       const intentHash = generateIntentHash(
         intent.intentId,
         intent.amount,
@@ -85,8 +83,19 @@ export class Orchestrator {
         nonce
       );
 
-      // Sign the intent message
-      const signature = await walletService.signHash(messageText);
+      // Compute EIP-712 digest for signing
+      const amountWei = ethers.parseEther(intent.amount);
+      const digest = computeEIP712Digest(
+        intentHash,
+        intent.recipient,
+        amountWei,
+        nonce,
+        chainId,
+        settlementContractAddress
+      );
+
+      // Sign the EIP-712 digest
+      const signature = await walletService.signHash(digest);
 
       this.logger.info(
         {
@@ -95,6 +104,7 @@ export class Orchestrator {
           nonce,
           chainId,
           intentHash,
+          digest,
         },
         '[Orchestrator] Intent signed successfully'
       );
@@ -105,7 +115,7 @@ export class Orchestrator {
 
       // Validate RPC connection and chain ID
       const network = await provider.getNetwork();
-      const expectedChainId = BigInt(process.env.CHAIN_ID || '43113');
+      const expectedChainId = BigInt(process.env.CHAIN_ID || '338');
       if (network.chainId !== expectedChainId) {
         throw new Error(
           `Wrong chain: expected ${expectedChainId}, got ${network.chainId}`
@@ -114,11 +124,6 @@ export class Orchestrator {
 
       // Use WalletService singleton for secure wallet management (SECURITY FIX #1)
       const signer = walletService.getWallet();
-
-      const settlementContractAddress = process.env.SETTLEMENT_CONTRACT_ADDRESS;
-      if (!settlementContractAddress) {
-        throw new Error('SETTLEMENT_CONTRACT_ADDRESS not configured');
-      }
 
       // Validate contract exists at address (SECURITY FIX #5)
       const contractCode = await provider.getCode(settlementContractAddress);
@@ -143,15 +148,19 @@ export class Orchestrator {
         '[Orchestrator] Connected to Settlement contract'
       );
 
-      // Convert amount to proper format (assuming CRO with 18 decimals)
-      const amountWei = ethers.parseEther(intent.amount);
-
       // Execute settlement transaction
       this.logger.info(
         {
           intentId: intent.intentId,
           amount: intent.amount,
           recipient: intent.recipient,
+          callParams: {
+            intentHash,
+            recipient: intent.recipient,
+            amountWei: amountWei.toString(),
+            nonce,
+            signatureLength: signature.length,
+          },
         },
         '[Orchestrator] Submitting settlement transaction to Cronos'
       );
@@ -195,10 +204,12 @@ export class Orchestrator {
 
       return txHash;
     } catch (error) {
+      const decodedError = decodeCustomError(error);
       this.logger.error(
         {
           intentId: intent.intentId,
-          error: error instanceof Error ? error.message : String(error),
+          error: decodedError,
+          originalError: error instanceof Error ? error.message : String(error),
           stack: error instanceof Error ? error.stack : undefined,
         },
         '[Orchestrator] Execution failed'

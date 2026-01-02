@@ -1,13 +1,25 @@
 import { PaymentIntent, AgentDecision } from '@cronos-x402/shared-types';
 import { FastifyInstance } from 'fastify';
 import { getPriceService, PriceService } from '../services/price-service';
+import { getZKProofService, ZKProofService } from '../services/zkproof-service';
+import { ZKProof } from '../zk/interfaces/IZKProofProvider';
+
+export interface AgentDecisionWithProof extends AgentDecision {
+  zkProof?: ZKProof;
+}
 
 export class Agent {
   // Use real price API (set to false for MVP with mock prices)
   private useRealPriceApi = process.env.USE_REAL_PRICE_API === 'true';
 
+  // Use ZK proofs for privacy
+  private useZKProofs = process.env.USE_ZK_PROOFS === 'true';
+
   // Price service for Crypto.com MCP + CoinGecko fallback
   private priceService: PriceService | null = null;
+
+  // ZK Proof service for privacy
+  private zkService: ZKProofService | null = null;
 
   constructor(private logger: FastifyInstance['log']) {
     // Try to get price service if initialized
@@ -16,11 +28,22 @@ export class Agent {
     } catch {
       this.logger.warn('[Agent] PriceService not initialized, using mock prices');
     }
+
+    // Try to get ZK service if initialized
+    try {
+      this.zkService = getZKProofService();
+    } catch {
+      this.logger.warn('[Agent] ZKProofService not initialized, ZK proofs disabled');
+    }
   }
 
-  async evaluate(intent: PaymentIntent): Promise<AgentDecision> {
+  async evaluate(intent: PaymentIntent): Promise<AgentDecisionWithProof> {
     this.logger.info({ intentId: intent.intentId }, `[Agent] Evaluating intent: ${intent.intentId}`);
-    this.logger.info({ condition: intent.condition }, `[Agent] Condition: ${intent.condition.type} = ${intent.condition.value}`);
+    // NOTE: Never log the condition value (threshold) when ZK is enabled
+    this.logger.info(
+      { conditionType: intent.condition.type, zkEnabled: this.useZKProofs },
+      `[Agent] Condition type: ${intent.condition.type}`
+    );
 
     try {
       switch (intent.condition.type) {
@@ -44,7 +67,7 @@ export class Agent {
     }
   }
 
-  private evaluateManual(): AgentDecision {
+  private evaluateManual(): AgentDecisionWithProof {
     this.logger.info('[Agent] Manual condition - always execute');
     return {
       decision: 'EXECUTE',
@@ -52,33 +75,70 @@ export class Agent {
     };
   }
 
-  private async evaluatePriceBelow(intent: PaymentIntent): Promise<AgentDecision> {
+  private async evaluatePriceBelow(intent: PaymentIntent): Promise<AgentDecisionWithProof> {
     const targetPrice = parseFloat(intent.condition.value);
 
     if (isNaN(targetPrice) || targetPrice <= 0) {
-      this.logger.warn({ targetPrice: intent.condition.value }, '[Agent] Invalid price threshold');
+      // Don't log the actual value for privacy
+      this.logger.warn('[Agent] Invalid price threshold provided');
       return {
         decision: 'SKIP',
-        reason: `Invalid price threshold: ${intent.condition.value}`,
+        reason: 'Invalid price threshold',
       };
     }
 
     const currentPrice = await this.fetchCurrentPrice('CRO', 'USD');
+    const conditionMet = currentPrice < targetPrice;
 
-    this.logger.info({ currentPrice, targetPrice }, '[Agent] Price comparison');
+    // Generate ZK proof if enabled (threshold stays private)
+    let zkProof: ZKProof | undefined;
+    if (this.useZKProofs && this.zkService) {
+      try {
+        this.logger.info(
+          { intentId: intent.intentId, currentPrice },
+          '[Agent] Generating ZK proof for price condition (threshold hidden)'
+        );
 
-    if (currentPrice < targetPrice) {
-      this.logger.info({ currentPrice, targetPrice }, '[Agent] Price below threshold - EXECUTE');
+        zkProof = await this.zkService.generatePriceConditionProof(
+          currentPrice,
+          targetPrice, // This is the PRIVATE input - never logged
+          intent.intentId
+        );
+
+        this.logger.info(
+          { intentId: intent.intentId, proofGenerated: true },
+          '[Agent] ZK proof generated successfully'
+        );
+      } catch (error) {
+        this.logger.error(
+          { error: error instanceof Error ? error.message : String(error) },
+          '[Agent] ZK proof generation failed, continuing without proof'
+        );
+      }
+    }
+
+    // Log without revealing threshold
+    this.logger.info(
+      { currentPrice, conditionMet, hasZKProof: !!zkProof },
+      '[Agent] Price evaluation complete (threshold hidden)'
+    );
+
+    if (conditionMet) {
       return {
         decision: 'EXECUTE',
-        reason: `Price ${currentPrice} is below threshold ${targetPrice}`,
+        reason: zkProof
+          ? 'Price condition met (verified with ZK proof - threshold private)'
+          : `Price ${currentPrice} meets condition`,
+        zkProof,
       };
     }
 
-    this.logger.info({ currentPrice, targetPrice }, '[Agent] Price above threshold - SKIP');
     return {
       decision: 'SKIP',
-      reason: `Price ${currentPrice} is above or equal to threshold ${targetPrice}`,
+      reason: zkProof
+        ? 'Price condition not met (verified with ZK proof - threshold private)'
+        : `Price ${currentPrice} does not meet condition`,
+      zkProof,
     };
   }
 
@@ -92,7 +152,6 @@ export class Agent {
 
     // MVP: Return mock price
     this.logger.debug({ base, quote }, '[Agent] Fetching price (MOCK)');
-    return 0.1; // Mock CRO/USD price for MVP
+    return 0.08; // Mock CRO/USD price for MVP (below typical thresholds for testing)
   }
 }
-

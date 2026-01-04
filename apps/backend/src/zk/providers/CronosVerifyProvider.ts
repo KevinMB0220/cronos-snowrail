@@ -1,103 +1,139 @@
 /**
  * Cronos Verify Provider
- * LEGO #3: Privacy-preserving identity verification via Cronos Verify API
+ *
+ * LEGO-swappable implementation for Cronos Verify identity verification.
+ * Provides privacy-preserving wallet verification for the Cronos ecosystem.
+ *
+ * Features:
+ * - Caches verification results (5 min TTL)
+ * - Graceful fallback on API errors
+ * - Health check endpoint
  */
 
 import { IVerifyProvider, VerificationResult } from '../interfaces/IVerifyProvider';
 
-interface CronosVerifyResponse {
-  verified: boolean;
-  verifiedAt?: number;
-  verificationLevel?: string;
-  expiresAt?: number;
+interface CacheEntry {
+  result: VerificationResult;
+  expires: number;
+}
+
+export interface CronosVerifyConfig {
+  apiEndpoint: string;
+  apiKey?: string;
+  cacheTTL?: number;
+  timeout?: number;
 }
 
 export class CronosVerifyProvider implements IVerifyProvider {
   readonly name = 'cronos-verify';
 
-  private readonly apiUrl: string;
-  private readonly apiKey: string;
+  private cache = new Map<string, CacheEntry>();
+  private readonly cacheTTL: number;
   private readonly timeout: number;
 
-  constructor() {
-    this.apiUrl = process.env.CRONOS_VERIFY_API_URL || 'https://verify.cronos.org/api/v1';
-    this.apiKey = process.env.CRONOS_VERIFY_API_KEY || '';
-    this.timeout = 5000; // 5 seconds
+  constructor(
+    private config: CronosVerifyConfig,
+    private logger?: { info: Function; warn: Function; error: Function }
+  ) {
+    this.cacheTTL = config.cacheTTL ?? 300000; // 5 minutes
+    this.timeout = config.timeout ?? 5000; // 5 seconds
   }
 
-  async isVerified(address: string): Promise<VerificationResult> {
-    const normalized = address.toLowerCase();
+  async isVerified(address: string): Promise<boolean> {
+    const status = await this.getVerificationStatus(address);
+    return status.isVerified;
+  }
+
+  async getVerificationStatus(address: string): Promise<VerificationResult> {
+    const normalizedAddress = address.toLowerCase();
+
+    // Check cache
+    const cached = this.cache.get(normalizedAddress);
+    if (cached && cached.expires > Date.now()) {
+      this.logger?.info({ address: normalizedAddress, cached: true }, '[CronosVerify] Cache hit');
+      return cached.result;
+    }
 
     try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+      const result = await this.fetchFromAPI(normalizedAddress);
 
-      try {
-        const response = await fetch(
-          `${this.apiUrl}/wallets/${normalized}/status`,
-          {
-            method: 'GET',
-            signal: controller.signal,
-            headers: {
-              'Authorization': `Bearer ${this.apiKey}`,
-              'Content-Type': 'application/json',
-              'User-Agent': 'Cronos-X402-Treasury/1.0',
-            },
-          }
-        );
+      // Cache result
+      this.cache.set(normalizedAddress, {
+        result,
+        expires: Date.now() + this.cacheTTL,
+      });
 
-        if (!response.ok) {
-          // Don't throw on 404 - just means not verified
-          if (response.status === 404) {
-            return {
-              isVerified: false,
-              source: this.name,
-            };
-          }
-          throw new Error(`Cronos Verify API error: ${response.status} ${response.statusText}`);
-        }
+      this.logger?.info(
+        { address: normalizedAddress, isVerified: result.isVerified },
+        '[CronosVerify] Verification fetched'
+      );
 
-        const data = await response.json() as CronosVerifyResponse;
-
-        return {
-          isVerified: data.verified,
-          verifiedAt: data.verifiedAt,
-          expiresAt: data.expiresAt,
-          level: data.verificationLevel,
-          source: this.name,
-        };
-      } finally {
-        clearTimeout(timeoutId);
-      }
+      return result;
     } catch (error) {
-      // REQ-V4: Verification failure MUST NOT block execution
-      // Return unverified on error, log but don't throw
-      console.error('[CronosVerifyProvider] API error:', error instanceof Error ? error.message : error);
+      this.logger?.error(
+        { address: normalizedAddress, error: String(error) },
+        '[CronosVerify] API error'
+      );
 
+      // Return cached result if available (even if expired)
+      if (cached) {
+        this.logger?.warn('[CronosVerify] Using expired cache due to API error');
+        return cached.result;
+      }
+
+      // Default to unverified on error
       return {
         isVerified: false,
-        source: this.name,
+        metadata: {
+          error: 'API unavailable',
+          provider: this.name,
+        },
       };
     }
   }
 
-  async batchVerify(addresses: string[]): Promise<Map<string, VerificationResult>> {
-    const results = new Map<string, VerificationResult>();
+  private async fetchFromAPI(address: string): Promise<VerificationResult> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-    // Process in parallel with concurrency limit
-    const batchSize = 10;
-    for (let i = 0; i < addresses.length; i += batchSize) {
-      const batch = addresses.slice(i, i + batchSize);
-      const batchResults = await Promise.all(
-        batch.map(addr => this.isVerified(addr))
-      );
+    try {
+      const url = `${this.config.apiEndpoint}/v1/verify/${address}`;
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'User-Agent': 'Cronos-X402-Treasury/1.0',
+      };
 
-      batch.forEach((addr, idx) => {
-        results.set(addr.toLowerCase(), batchResults[idx]);
+      if (this.config.apiKey) {
+        headers['Authorization'] = `Bearer ${this.config.apiKey}`;
+      }
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers,
+        signal: controller.signal,
       });
-    }
 
-    return results;
+      if (!response.ok) {
+        throw new Error(`Cronos Verify API error: ${response.status}`);
+      }
+
+      const data = (await response.json()) as {
+        verified: boolean;
+        level?: string;
+        expiresAt?: number;
+      };
+
+      return {
+        isVerified: data.verified,
+        level: data.level as 'basic' | 'advanced' | 'full' | undefined,
+        expiresAt: data.expiresAt,
+        metadata: {
+          provider: this.name,
+        },
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   async healthCheck(): Promise<boolean> {
@@ -106,11 +142,9 @@ export class CronosVerifyProvider implements IVerifyProvider {
       const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
       try {
-        const response = await fetch(`${this.apiUrl}/health`, {
+        const response = await fetch(`${this.config.apiEndpoint}/health`, {
+          method: 'GET',
           signal: controller.signal,
-          headers: {
-            'User-Agent': 'Cronos-X402-Treasury/1.0',
-          },
         });
         return response.ok;
       } finally {
@@ -119,5 +153,10 @@ export class CronosVerifyProvider implements IVerifyProvider {
     } catch {
       return false;
     }
+  }
+
+  // Clear cache (for testing)
+  clearCache(): void {
+    this.cache.clear();
   }
 }

@@ -1,48 +1,66 @@
 /**
- * ZK Proof Provider Interface
- * LEGO Module: Swappable ZK proof generation/verification
+ * ZK Proof Provider Interface - LEGO #2
+ *
+ * Abstraction for zero-knowledge proof generation and verification.
+ * Implementations can be swapped without changing consumer code.
+ *
+ * Current implementations:
+ * - NoirProvider: Noir/Barretenberg proofs
+ * - MockZKProvider: Testing/development
  */
 
+export type ZKConditionType = 'price-below' | 'price-above' | 'amount-range' | 'custom';
+
 export interface ZKProofInput {
-  circuitId: string;          // Which circuit to use
-  privateInputs: unknown;     // Secret inputs (NEVER log these)
-  publicInputs: unknown;      // Public inputs
+  /** Type of condition to prove */
+  type: ZKConditionType;
+  /** Private inputs - hidden from observers */
+  privateInputs: Record<string, string | number>;
+  /** Public inputs - visible in proof */
+  publicInputs: Record<string, string | number>;
 }
 
 export interface ZKProof {
-  proof: string;              // Hex-encoded proof
-  publicSignals: string[];    // Public outputs
+  /** Hex-encoded proof data */
+  proof: string;
+  /** Public signals/outputs from the proof */
+  publicSignals: string[];
+  /** Verifier contract address (if deployed) */
+  verifierContract?: string;
+  /** Circuit identifier */
   circuitId: string;
-  generatedAt: number;
-}
-
-export interface VerifyProofResult {
-  isValid: boolean;
-  verifiedAt: number;
-  circuitId: string;
-  error?: string;
 }
 
 export interface IZKProofProvider {
+  /** Provider identifier */
   readonly name: string;
+  /** List of supported circuit types */
+  readonly supportedCircuits: string[];
 
   /**
-   * Generate a ZK proof
+   * Generate ZK proof for given inputs
+   * @param input - Proof inputs (private + public)
+   * @returns Generated proof with public signals
    */
   generateProof(input: ZKProofInput): Promise<ZKProof>;
 
   /**
-   * Verify a ZK proof (off-chain)
+   * Verify proof off-chain (for testing/preview)
+   * @param proof - Proof to verify
+   * @returns true if proof is valid
    */
-  verifyProof(proof: ZKProof): Promise<VerifyProofResult>;
+  verifyProofOffChain(proof: ZKProof): Promise<boolean>;
 
   /**
-   * Get available circuits
+   * Get verifier contract address for on-chain verification
+   * @param circuitId - Circuit identifier
+   * @returns Contract address
    */
-  getCircuits(): string[];
+  getVerifierContract(circuitId: string): Promise<string | undefined>;
 
   /**
-   * Health check
+   * Health check for the provider
+   * @returns true if provider is operational
    */
   healthCheck(): Promise<boolean>;
 }

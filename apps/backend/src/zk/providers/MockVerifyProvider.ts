@@ -1,6 +1,8 @@
 /**
  * Mock Verification Provider
- * LEGO #4: For testing and development
+ *
+ * LEGO-swappable implementation for testing and development.
+ * All addresses are verified by default, or use whitelist mode.
  */
 
 import { IVerifyProvider, VerificationResult } from '../interfaces/IVerifyProvider';
@@ -8,33 +10,33 @@ import { IVerifyProvider, VerificationResult } from '../interfaces/IVerifyProvid
 export class MockVerifyProvider implements IVerifyProvider {
   readonly name = 'mock-verify';
 
-  // Configurable mock responses
   private verifiedAddresses = new Set<string>();
+  private verifyAll: boolean;
 
-  constructor(initialVerified: string[] = []) {
-    initialVerified.forEach(addr => this.verifiedAddresses.add(addr.toLowerCase()));
+  constructor(options?: { verifyAll?: boolean; initialVerified?: string[] }) {
+    this.verifyAll = options?.verifyAll ?? true;
+    if (options?.initialVerified) {
+      options.initialVerified.forEach((addr) => this.verifiedAddresses.add(addr.toLowerCase()));
+    }
   }
 
-  async isVerified(address: string): Promise<VerificationResult> {
-    const normalized = address.toLowerCase();
-    const isVerified = this.verifiedAddresses.has(normalized);
+  async isVerified(address: string): Promise<boolean> {
+    if (this.verifyAll) {
+      return true;
+    }
+    return this.verifiedAddresses.has(address.toLowerCase());
+  }
 
+  async getVerificationStatus(address: string): Promise<VerificationResult> {
+    const isVerified = await this.isVerified(address);
     return {
       isVerified,
-      verifiedAt: isVerified ? Date.now() - 86400000 : undefined, // 1 day ago
       level: isVerified ? 'basic' : undefined,
-      source: this.name,
+      metadata: {
+        provider: this.name,
+        mode: this.verifyAll ? 'verify-all' : 'whitelist',
+      },
     };
-  }
-
-  async batchVerify(addresses: string[]): Promise<Map<string, VerificationResult>> {
-    const results = new Map<string, VerificationResult>();
-
-    for (const address of addresses) {
-      results.set(address.toLowerCase(), await this.isVerified(address));
-    }
-
-    return results;
   }
 
   async healthCheck(): Promise<boolean> {
@@ -50,11 +52,7 @@ export class MockVerifyProvider implements IVerifyProvider {
     this.verifiedAddresses.delete(address.toLowerCase());
   }
 
-  clearAll(): void {
-    this.verifiedAddresses.clear();
-  }
-
-  getVerifiedCount(): number {
-    return this.verifiedAddresses.size;
+  setVerifyAll(value: boolean): void {
+    this.verifyAll = value;
   }
 }

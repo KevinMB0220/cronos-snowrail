@@ -4,6 +4,7 @@ import { ethers } from 'ethers';
 import { getWalletService } from '../services/wallet-service';
 import { generateIntentHash, computeEIP712Digest } from '../utils/crypto';
 import { decodeCustomError } from '../utils/error-decoder';
+import { AgentDecisionWithZK } from '../agent/agent';
 
 // Settlement Contract ABI - minimal interface for executeSettlement
 const SETTLEMENT_CONTRACT_ABI = [
@@ -40,7 +41,7 @@ export class Orchestrator {
    * X402 protocol: Only executes if Agent decision is EXECUTE
    * Broadcasts signed transaction to Cronos Settlement contract
    */
-  async execute(intent: PaymentIntent, decision: AgentDecision): Promise<string | null> {
+  async execute(intent: PaymentIntent, decision: AgentDecision | AgentDecisionWithZK): Promise<string | null> {
     this.logger.info(
       { intentId: intent.intentId, decision: decision.decision },
       '[Orchestrator] Executing intent with agent decision'
@@ -53,6 +54,29 @@ export class Orchestrator {
         '[Orchestrator] Skipping execution - Agent decision was SKIP'
       );
       return null;
+    }
+
+    // Log ZK proof status if present
+    const zkDecision = decision as AgentDecisionWithZK;
+    if (zkDecision.zkProof) {
+      this.logger.info(
+        {
+          intentId: intent.intentId,
+          circuitId: zkDecision.zkProof.circuitId,
+          hasVerifier: !!zkDecision.zkProof.verifierContract,
+        },
+        '[Orchestrator] ZK proof attached to decision'
+      );
+    }
+
+    if (zkDecision.verificationStatus?.checked) {
+      this.logger.info(
+        {
+          intentId: intent.intentId,
+          verified: zkDecision.verificationStatus.verified,
+        },
+        '[Orchestrator] Recipient verification status'
+      );
     }
 
     this.logger.info(

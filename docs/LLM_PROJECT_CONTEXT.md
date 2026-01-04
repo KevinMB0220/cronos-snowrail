@@ -37,42 +37,60 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         FRONTEND                                 │
+│                         FRONTEND                                │
 │                    (Next.js 14 + RainbowKit)                    │
-│                        Port: 3000                                │
+│                        Port: 3000                               │
 └─────────────────────────┬───────────────────────────────────────┘
                           │ HTTP
 ┌─────────────────────────▼───────────────────────────────────────┐
-│                         BACKEND                                  │
+│                         BACKEND                                 │
 │                    (Fastify + TypeScript)                       │
-│                        Port: 4000                                │
-│                                                                  │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
-│  │ REST API    │  │ MCP Server  │  │ Services                │ │
-│  │ /api/*      │  │ /mcp        │  │ • IntentService         │ │
-│  └─────────────┘  └─────────────┘  │ • AgentService          │ │
-│                                     │ • WalletService         │ │
-│  ┌─────────────┐  ┌─────────────┐  │ • PriceService          │ │
-│  │ AI Agent    │  │Orchestrator │  │ • MixerService (ZK)     │ │
-│  │ (Decider)   │  │ (Executor)  │  └─────────────────────────┘ │
-│  └──────┬──────┘  └─────────────┘                              │
-│         │                                                        │
+│                        Port: 4000                               │
+│                                                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │ REST API    │  │ MCP Server  │  │ Services                │  │
+│  │ /api/*      │  │ /mcp        │  │ • IntentService         │  │
+│  └─────────────┘  └─────────────┘  │ • AgentService          │  │
+│                                    │ • WalletService         │  │
+│  ┌─────────────┐  ┌─────────────┐  │ • PriceService          │  │
+│  │ AI Agent    │  │Orchestrator │  │ • MixerService (ZK)     │  │
+│  │ (Decider)   │  │ (Executor)  │  └─────────────────────────┘  │
+│  └──────┬──────┘  └─────────────┘                               │
+│         │                                                       │
 │  ┌──────▼──────────────────────────────────────────────────────┐│
 │  │              ZK LEGO MODULES (Swappable)                    ││
-│  │  ┌─────────────────┐  ┌─────────────────────────────────┐  ││
-│  │  │ IVerifyProvider │  │ IZKProofProvider                │  ││
-│  │  │ • MockVerify    │  │ • MockZK / NoirProvider         │  ││
-│  │  │ • CronosVerify  │  │ • Circuits: price_condition     │  ││
-│  │  └─────────────────┘  └─────────────────────────────────┘  ││
+│  │  ┌─────────────────┐  ┌─────────────────────────────────┐   ││
+│  │  │ IVerifyProvider │  │ IZKProofProvider                │   ││
+│  │  │ • MockVerify    │  │ • MockZK / NoirProvider         │   ││
+│  │  │ • CronosVerify  │  │ • Circuits: price_condition     │   ││
+│  │  └─────────────────┘  └─────────────────────────────────┘   ││
 │  └─────────────────────────────────────────────────────────────┘│
 └─────────────────────────┬───────────────────────────────────────┘
                           │ RPC
 ┌─────────────────────────▼───────────────────────────────────────┐
-│                    CRONOS BLOCKCHAIN                             │
-│                                                                  │
-│  Settlement.sol: 0xae6E14caD8D4f43947401fce0E4717b8D17b4382    │
-│  ZKMixer.sol:    0xfAef6b16831d961CBd52559742eC269835FF95FF    │
-│                                                                  │
+│                    CRONOS BLOCKCHAIN                            │
+│                                                                 │
+│  Settlement.sol: 0xae6E14caD8D4f43947401fce0E4717b8D17b4382     │
+│  ZKMixer.sol:    0xfAef6b16831d961CBd52559742eC269835FF95FF     │
+│                                                                 │
+│                        Port: 4000                               │
+│                                                                 │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐  │
+│  │ REST API    │  │ MCP Server  │  │ Services                │  │
+│  │ /api/*      │  │ /mcp        │  │ • IntentService         │  │
+│  └─────────────┘  └─────────────┘  │ • AgentService          │  │
+│                                    │ • WalletService         │  │
+│  ┌─────────────┐  ┌─────────────┐  │ • PriceService          │  │
+│  │ AI Agent    │  │Orchestrator │  └─────────────────────────┘  │
+│  │ (Decider)   │  │ (Executor)  │                               │
+│  └─────────────┘  └─────────────┘                               │
+└─────────────────────────┬───────────────────────────────────────┘
+                          │ RPC
+┌─────────────────────────▼───────────────────────────────────────┐
+│                    CRONOS BLOCKCHAIN                            │
+│                                                                 │
+│  Settlement.sol: 0xae6E14caD8D4f43947401fce0E4717b8D17b4382     │
+
 │  Network: Cronos Testnet (Chain ID: 338)                        │
 │  RPC: https://evm-t3.cronos.org                                 │
 └─────────────────────────────────────────────────────────────────┘

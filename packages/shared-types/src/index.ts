@@ -1,6 +1,12 @@
-export type IntentStatus = 'pending' | 'executed' | 'failed';
+export type IntentStatus = 'pending' | 'funded' | 'executed' | 'failed';
 
 export type ConditionType = 'manual' | 'price-below';
+
+export interface DepositInfo {
+  txHash: string;
+  amount: string;
+  confirmedAt: string;
+}
 
 export interface PaymentCondition {
   type: ConditionType;
@@ -16,6 +22,7 @@ export interface PaymentIntent {
   status: IntentStatus;
   createdAt: string;
   txHash?: string;
+  deposit?: DepositInfo;
 }
 
 export interface AgentDecision {

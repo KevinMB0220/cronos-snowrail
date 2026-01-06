@@ -4,6 +4,7 @@ import { intentService } from "../../services/intent-service";
 import { getAgentService } from "../../services/agent-service";
 import { Orchestrator } from "../../x402/orchestrator";
 import { decodeCustomError } from "../../utils/error-decoder";
+import { ethers } from "ethers";
 
 // Validation helper
 function isValidEthereumAddress(address: string): boolean {
@@ -251,6 +252,25 @@ export async function executeIntent(
       return;
     }
 
+    // Security: Require deposit before execution
+    if (!intent.deposit) {
+      request.server.log.warn(
+        { intentId: id },
+        '[Controller] Attempt to execute unfunded intent'
+      );
+      const response: ApiResponse = {
+        status: "error",
+        code: "INTENT_NOT_FUNDED",
+        message: "Intent must be funded before execution. Call /intents/:id/deposit first.",
+        details: {
+          traceId: request.id,
+          nextStep: "POST /intents/:id/deposit to get deposit TX data",
+        },
+      };
+      reply.code(402).send(response); // 402 Payment Required
+      return;
+    }
+
     request.server.log.info(
       { intentId: id, status: intent.status },
       '[Controller] Validating intent for execution'
@@ -319,6 +339,218 @@ export async function executeIntent(
         originalError:
           process.env.NODE_ENV === "development" ? String(error) : undefined,
       },
+    };
+    reply.code(500).send(response);
+  }
+}
+
+/**
+ * Prepare deposit TX data for frontend wallet to execute
+ * User must deposit funds before intent can be executed
+ */
+export async function prepareDeposit(
+  request: FastifyRequest<{
+    Params: { id: string };
+  }>,
+  reply: FastifyReply
+): Promise<void> {
+  try {
+    const { id } = request.params;
+    const intent = intentService.getById(id);
+
+    if (!intent) {
+      const response: ApiResponse = {
+        status: "error",
+        code: "INTENT_NOT_FOUND",
+        message: `Payment intent with ID ${id} not found`,
+        details: { traceId: request.id },
+      };
+      reply.code(404).send(response);
+      return;
+    }
+
+    if (intent.deposit) {
+      const response: ApiResponse = {
+        status: "error",
+        code: "ALREADY_FUNDED",
+        message: "This intent has already been funded",
+        details: { traceId: request.id, depositTxHash: intent.deposit.txHash },
+      };
+      reply.code(400).send(response);
+      return;
+    }
+
+    const settlementAddress = process.env.SETTLEMENT_CONTRACT_ADDRESS;
+    if (!settlementAddress) {
+      const response: ApiResponse = {
+        status: "error",
+        code: "SETTLEMENT_NOT_CONFIGURED",
+        message: "Settlement contract address not configured",
+      };
+      reply.code(500).send(response);
+      return;
+    }
+
+    // Calculate amount in wei
+    const amountWei = ethers.parseEther(intent.amount);
+
+    request.server.log.info(
+      { intentId: id, amount: intent.amount },
+      "[Controller] Prepared deposit TX for frontend"
+    );
+
+    const response: ApiResponse = {
+      status: "success",
+      code: "DEPOSIT_TX_PREPARED",
+      message: "Deposit transaction prepared. Sign and send from your wallet.",
+      data: {
+        tx: {
+          to: settlementAddress,
+          value: amountWei.toString(),
+          data: "0x", // Simple ETH transfer
+        },
+        intentId: id,
+        amount: intent.amount + " " + intent.currency,
+        instructions: [
+          "1. Sign this transaction with your connected wallet",
+          "2. After confirmation, call /intents/:id/confirm-deposit with txHash",
+          "3. Once funded, the agent will execute when conditions are met",
+        ],
+      },
+    };
+
+    reply.code(200).send(response);
+  } catch (error) {
+    request.server.log.error(error, "[Controller] Prepare deposit failed");
+    const response: ApiResponse = {
+      status: "error",
+      code: "DEPOSIT_PREPARATION_FAILED",
+      message: (error as Error).message || "Failed to prepare deposit",
+      details: { traceId: request.id },
+    };
+    reply.code(500).send(response);
+  }
+}
+
+/**
+ * Confirm deposit after frontend executes TX
+ */
+export async function confirmDeposit(
+  request: FastifyRequest<{
+    Params: { id: string };
+    Body: { txHash: string };
+  }>,
+  reply: FastifyReply
+): Promise<void> {
+  try {
+    const { id } = request.params;
+    const { txHash } = request.body;
+
+    if (!txHash) {
+      const response: ApiResponse = {
+        status: "error",
+        code: "MISSING_TX_HASH",
+        message: "txHash is required",
+      };
+      reply.code(400).send(response);
+      return;
+    }
+
+    const intent = intentService.getById(id);
+    if (!intent) {
+      const response: ApiResponse = {
+        status: "error",
+        code: "INTENT_NOT_FOUND",
+        message: `Payment intent with ID ${id} not found`,
+      };
+      reply.code(404).send(response);
+      return;
+    }
+
+    if (intent.deposit) {
+      const response: ApiResponse = {
+        status: "error",
+        code: "ALREADY_FUNDED",
+        message: "This intent has already been funded",
+        details: { depositTxHash: intent.deposit.txHash },
+      };
+      reply.code(400).send(response);
+      return;
+    }
+
+    // Verify transaction on-chain
+    const rpcUrl = process.env.RPC_URL || "https://evm-t3.cronos.org";
+    const provider = new ethers.JsonRpcProvider(rpcUrl);
+    const receipt = await provider.getTransactionReceipt(txHash);
+
+    if (!receipt) {
+      const response: ApiResponse = {
+        status: "error",
+        code: "TX_NOT_FOUND",
+        message: "Transaction not found. Wait for confirmation.",
+      };
+      reply.code(400).send(response);
+      return;
+    }
+
+    if (receipt.status === 0) {
+      const response: ApiResponse = {
+        status: "error",
+        code: "TX_FAILED",
+        message: "Transaction failed on-chain",
+      };
+      reply.code(400).send(response);
+      return;
+    }
+
+    // Verify it was sent to Settlement contract
+    const settlementAddress = process.env.SETTLEMENT_CONTRACT_ADDRESS?.toLowerCase();
+    if (receipt.to?.toLowerCase() !== settlementAddress) {
+      const response: ApiResponse = {
+        status: "error",
+        code: "WRONG_RECIPIENT",
+        message: "Transaction was not sent to Settlement contract",
+      };
+      reply.code(400).send(response);
+      return;
+    }
+
+    // Get transaction to check value
+    const tx = await provider.getTransaction(txHash);
+    const depositedAmount = ethers.formatEther(tx?.value || 0);
+
+    // Record the deposit
+    intentService.recordDeposit(id, {
+      txHash,
+      amount: depositedAmount,
+      confirmedAt: new Date().toISOString(),
+    });
+
+    request.server.log.info(
+      { intentId: id, txHash, amount: depositedAmount },
+      "[Controller] Deposit confirmed"
+    );
+
+    const response: ApiResponse = {
+      status: "success",
+      code: "DEPOSIT_CONFIRMED",
+      message: "Deposit confirmed. Intent is now funded and ready for execution.",
+      data: {
+        intentId: id,
+        txHash,
+        amount: depositedAmount + " " + intent.currency,
+        status: "funded",
+        nextStep: "Agent will execute when condition is met, or call /intents/:id/execute",
+      },
+    };
+
+    reply.code(200).send(response);
+  } catch (error) {
+    request.server.log.error(error, "[Controller] Confirm deposit failed");
+    const response: ApiResponse = {
+      status: "error",
+      code: "CONFIRM_FAILED",
+      message: (error as Error).message || "Failed to confirm deposit",
     };
     reply.code(500).send(response);
   }

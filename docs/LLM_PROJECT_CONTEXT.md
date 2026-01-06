@@ -539,23 +539,36 @@ curl -X POST http://localhost:4000/mcp \
 
 ## Recent Changes
 
-### Jan 5, 2026 - Frontend Signing for Mixer
+### Jan 5, 2026 - Treasury Model with Frontend Deposits
 
-1. **Mixer Endpoints Updated** - Users sign their own transactions
+1. **Intent Deposit Flow** - Users fund intents before execution
+   - `POST /api/intents/:id/deposit` - Returns TX data for frontend signing
+   - `POST /api/intents/:id/confirm-deposit` - Confirms deposit, status → "funded"
+   - `POST /api/intents/:id/execute` - Now requires intent to be funded (402 if not)
+   - Agent can only execute from funded pool, not from backend wallet
+
+2. **Complete Signing Model**:
+   | Component | Who Signs | Description |
+   |-----------|-----------|-------------|
+   | Intent deposit | **Frontend** | User deposits to treasury pool |
+   | Mixer deposit/withdraw | **Frontend** | User controls privacy funds |
+   | Intent execute | Backend | Agent executes when conditions met |
+
+3. **Intent Status Flow**:
+   ```
+   pending → funded → executed/failed
+   ```
+
+4. **Mixer Endpoints Updated** - Users sign their own transactions
    - `/api/mixer/deposit` now returns TX data for frontend signing
    - `/api/mixer/withdraw` now returns TX data for frontend signing
    - New `/api/mixer/confirm-deposit` endpoint to confirm after frontend execution
-   - Backend no longer signs mixer transactions
 
-2. **Signing Model**:
-   | Component | Who Signs |
-   |-----------|-----------|
-   | Mixer deposit/withdraw | Frontend (user's wallet) |
-   | Settlement intents | Backend (agent wallet) |
-
-3. **Tested on Cronos Testnet**:
-   - Deposit TX: `0x8d4163b360ba79a78703c92f55482333d85899f9a64eef5ea4156e6b433e5cc4`
-   - Withdraw TX: `0x55f25745b19389f00cbe4160fdd8500b65e0ee7984bc0fbde021a3141c6df88e`
+5. **Tested on Cronos Testnet**:
+   - Mixer Deposit TX: `0x8d4163b360ba79a78703c92f55482333d85899f9a64eef5ea4156e6b433e5cc4`
+   - Mixer Withdraw TX: `0x55f25745b19389f00cbe4160fdd8500b65e0ee7984bc0fbde021a3141c6df88e`
+   - Intent Deposit TX: `0x322df2a492be7460b0a35cf2527ef34c5d318e9a5d0271a6cdc40b116ff3acea`
+   - Intent Execute TX: `0x279e8b5215b41e8077308a657613351bb08e0289b581b9b091fdb9d4f783455b`
 
 ### Jan 3, 2026 - ZK Privacy Integration
 

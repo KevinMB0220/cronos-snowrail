@@ -204,9 +204,87 @@ Retrieve a specific payment intent by ID.
 }
 ```
 
+### POST /api/intents/:id/deposit
+
+Prepare deposit TX data for frontend wallet to sign. **User must fund the intent before execution.**
+
+**Path Parameters**:
+- `id` (string): UUID of the payment intent
+
+**Request Body**: None
+
+**Response** (200 OK):
+```json
+{
+  "status": "success",
+  "code": "DEPOSIT_TX_PREPARED",
+  "message": "Deposit transaction prepared. Sign and send from your wallet.",
+  "data": {
+    "tx": {
+      "to": "0x96A4Dc9CC80A8aE2B5acD1bC52AC013C4f740C69",
+      "value": "1000000000000000",
+      "data": "0x"
+    },
+    "intentId": "74b62399-7c26-4c05-9df7-93bacd0bdd1f",
+    "amount": "0.001 CRO",
+    "instructions": [
+      "1. Sign this transaction with your connected wallet",
+      "2. After confirmation, call /intents/:id/confirm-deposit with txHash",
+      "3. Once funded, the agent will execute when conditions are met"
+    ]
+  }
+}
+```
+
+**Frontend Usage (ethers.js):**
+```typescript
+const { tx } = response.data;
+const transaction = await signer.sendTransaction({
+  to: tx.to,
+  value: tx.value,
+  data: tx.data
+});
+await transaction.wait();
+// Then call /intents/:id/confirm-deposit with txHash
+```
+
+### POST /api/intents/:id/confirm-deposit
+
+Confirm deposit after frontend executes TX. Updates intent status to "funded".
+
+**Path Parameters**:
+- `id` (string): UUID of the payment intent
+
+**Request Body**:
+```json
+{
+  "txHash": "0x123abc..."
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `txHash` | string | Yes | Transaction hash from frontend deposit |
+
+**Response** (200 OK):
+```json
+{
+  "status": "success",
+  "code": "DEPOSIT_CONFIRMED",
+  "message": "Deposit confirmed. Intent is now funded and ready for execution.",
+  "data": {
+    "intentId": "74b62399-7c26-4c05-9df7-93bacd0bdd1f",
+    "txHash": "0x123abc...",
+    "amount": "0.001 CRO",
+    "status": "funded",
+    "nextStep": "Agent will execute when condition is met, or call /intents/:id/execute"
+  }
+}
+```
+
 ### POST /api/intents/:id/execute
 
-Execute a payment intent directly (bypasses agent evaluation).
+Execute a payment intent. **Requires intent to be funded first (402 if not funded).**
 
 **Path Parameters**:
 - `id` (string): UUID of the payment intent
@@ -230,6 +308,18 @@ Execute a payment intent directly (bypasses agent evaluation).
       "decision": "EXECUTE",
       "reason": "Manual condition - always execute"
     }
+  }
+}
+```
+
+**Error Response** (402 Payment Required):
+```json
+{
+  "status": "error",
+  "code": "INTENT_NOT_FUNDED",
+  "message": "Intent must be funded before execution. Call /intents/:id/deposit first.",
+  "details": {
+    "nextStep": "POST /intents/:id/deposit to get deposit TX data"
   }
 }
 ```
@@ -307,10 +397,13 @@ The mixer enables private transfers using ZK-SNARKs. Users deposit a fixed amoun
 
 | Endpoint | Who Signs | Description |
 |----------|-----------|-------------|
-| `/api/mixer/deposit` | **Frontend** (user's wallet) | User deposits their own funds |
-| `/api/mixer/withdraw` | **Frontend** (user's wallet) | User withdraws to any address |
+| `/api/intents/:id/deposit` | **Frontend** (user's wallet) | User deposits to treasury pool |
+| `/api/mixer/deposit` | **Frontend** (user's wallet) | User deposits to privacy mixer |
+| `/api/mixer/withdraw` | **Frontend** (user's wallet) | User withdraws from mixer |
 | `/api/intents/:id/execute` | Backend (agent wallet) | Agent executes from pool |
 | `/api/agent/trigger` | Backend (agent wallet) | Agent executes from pool |
+
+**Treasury Model**: Users deposit funds to the Settlement contract (pool). The agent can only execute payments from the pool when conditions are met. Users control their deposits; agents control execution logic.
 
 ### GET /api/mixer/info
 

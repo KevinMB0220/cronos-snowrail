@@ -6,7 +6,7 @@ import { ConnectWalletButton } from './connect-wallet-button';
 
 const navLinks = [
   { href: '/dashboard', label: 'Treasury', icon: TreasuryIcon },
-  { href: '/dashboard/mixer', label: 'ZK Mixer', icon: MixerIcon },
+  { href: '/dashboard/mixer', label: 'ZK Layer', icon: MixerIcon },
 ];
 
 function TreasuryIcon({ className }: { className?: string }) {

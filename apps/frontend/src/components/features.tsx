@@ -19,7 +19,7 @@ const features: Feature[] = [
   },
   {
     icon: <PrivacyIcon />,
-    title: 'ZK Privacy Mixer',
+    title: 'ZK Privacy Layer',
     description: 'Break on-chain transaction links with zero-knowledge proofs for enhanced privacy.',
   },
   {

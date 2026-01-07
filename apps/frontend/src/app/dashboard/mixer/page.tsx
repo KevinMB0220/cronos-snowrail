@@ -68,7 +68,7 @@ export default function MixerPage() {
               </div>
               <div>
                 <h1 className="text-3xl font-semibold text-white tracking-tight">
-                  ZK Privacy Mixer
+                  ZK Privacy Layer
                 </h1>
                 <p className="text-slate-400 mt-1">
                   Break on-chain links with zero-knowledge proofs

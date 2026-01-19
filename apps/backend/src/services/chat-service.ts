@@ -1,15 +1,15 @@
 import type { FastifyInstance } from 'fastify';
 import type {
   ChatMessage,
-  SendMessageRequest,
   SendMessageResponse,
   GetChatHistoryRequest,
   GetChatHistoryResponse,
   WSEventType,
 } from '@cronos-x402/shared-types';
 import { getPrismaService } from './prisma-service';
-import { parseCommand, validateCommand, getHelpText } from './command-parser';
+import { parseCommand, validateCommand } from './command-parser';
 import { emitToUser } from './websocket-service';
+import { executeCommand } from './command-executor';
 
 let serverInstance: FastifyInstance | null = null;
 
@@ -53,8 +53,8 @@ export async function sendMessage(
     data: {
       userId: user.id,
       content,
-      command: command || null,
-      metadata: commandParams ? { args: commandParams.args } : null,
+      command: command || undefined,
+      metadata: commandParams ? { args: commandParams.args } : undefined,
     },
   });
 
@@ -177,8 +177,8 @@ async function createSystemMessage(userId: string, content: string): Promise<Cha
     data: {
       userId,
       content: `System: ${content}`,
-      command: null,
-      metadata: null,
+      command: undefined,
+      metadata: undefined,
     },
   });
 
@@ -199,87 +199,15 @@ async function handleCommand(
   address: string,
   params: any
 ): Promise<ChatMessage> {
-  const { command, args } = params;
-
-  switch (command) {
-    case '/help':
-      const helpCommand = args[0];
-      const helpText = getHelpText(helpCommand);
-      return createSystemMessage(dbUserId, helpText);
-
-    case '/pay':
-      return createSystemMessage(
-        dbUserId,
-        `💰 Creating payment intent...\n\nRecipient: ${args[0]}\nAmount: ${args[1]} ${args[2] || 'CRO'}\n\nThis will create a payment intent. Full implementation coming soon!`
-      );
-
-    case '/deposit':
-      return createSystemMessage(
-        dbUserId,
-        `📥 Preparing deposit for intent ${args[0]}...\n\nAmount: ${args[1]}\n\nFull implementation coming soon!`
-      );
-
-    case '/withdraw':
-      return createSystemMessage(
-        dbUserId,
-        `📤 Preparing withdrawal for ${args[0]}...\n\nFull implementation coming soon!`
-      );
-
-    case '/mix':
-      return createSystemMessage(
-        dbUserId,
-        `🎭 Privacy Mixer\n\nAmount: ${args[0]} CRO\n\n⚠️ Full implementation coming soon!`
-      );
-
-    case '/bulk':
-      const subcommand = args[0];
-      return createSystemMessage(
-        dbUserId,
-        `📊 Bulk Payment: ${subcommand}\n\nFull implementation coming soon!`
-      );
-
-    case '/status':
-      if (args.length > 0) {
-        return createSystemMessage(
-          dbUserId,
-          `📊 Checking status for ${args[0]}...\n\nFull implementation coming soon!`
-        );
-      } else {
-        return createSystemMessage(
-          dbUserId,
-          `👛 Wallet Status\n\nAddress: ${address}\n\nFull implementation coming soon!`
-        );
-      }
-
-    case '/wallet':
-      return createSystemMessage(
-        dbUserId,
-        `👛 Your Wallet\n━━━━━━━━━━━━━━━━━━━━━━━\nAddress: ${address}\n\nFull implementation coming soon!`
-      );
-
-    case '/history':
-      const limit = args[0] || '10';
-      return createSystemMessage(
-        dbUserId,
-        `📜 Transaction History (last ${limit})\n\nFull implementation coming soon!`
-      );
-
-    case '/confirm':
-      return createSystemMessage(
-        dbUserId,
-        `✅ Confirmation received.\n\nFull implementation coming soon!`
-      );
-
-    case '/cancel':
-      return createSystemMessage(
-        dbUserId,
-        `❌ Cancelled.\n\nOperation aborted.`
-      );
-
-    default:
-      return createSystemMessage(
-        dbUserId,
-        `Unknown command: ${command}\n\nType /help for available commands.`
-      );
+  if (!serverInstance) {
+    throw new Error('ChatService not initialized');
   }
+
+  // Execute command using command-executor
+  const result = await executeCommand(serverInstance, dbUserId, address, params.raw);
+
+  // Create system message with the result
+  const content = result.success ? result.message : `❌ Error: ${result.message}`;
+
+  return createSystemMessage(dbUserId, content);
 }

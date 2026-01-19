@@ -4,19 +4,58 @@ import { useChat } from '@/hooks/use-chat';
 import { useNotifications } from '@/hooks/use-notifications';
 import { useWebSocket } from '@/hooks/use-websocket';
 import { useState, useEffect, useRef } from 'react';
+import { TransactionModal } from '@/components/transaction-modal';
+import { ToastContainer } from '@/components/toast-notification';
+import type { Notification } from '@cronos-x402/shared-types';
 
 export default function ChatPage() {
   const { messages, sendMessage, isSending } = useChat();
-  const { notifications, unreadCount, markAsRead } = useNotifications();
+  const { notifications, unreadCount, markAsRead, dismissNotification } = useNotifications();
   const { isConnected, isAuthenticated } = useWebSocket();
   const [input, setInput] = useState('');
   const [showNotifications, setShowNotifications] = useState(false);
+  const [transactionModal, setTransactionModal] = useState<{
+    isOpen: boolean;
+    transaction: any;
+  }>({ isOpen: false, transaction: null });
+  const [toastNotifications, setToastNotifications] = useState<Notification[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Handle notifications - show as toasts and check for transaction requests
+  useEffect(() => {
+    if (notifications.length === 0) return;
+
+    // Get the latest notification
+    const latestNotification = notifications[notifications.length - 1];
+
+    // Add to toast notifications
+    if (!latestNotification.read) {
+      setToastNotifications((prev) => [...prev, latestNotification]);
+    }
+
+    // Check if it's a transaction request
+    if (latestNotification.data?.depositInfo) {
+      // Extract transaction details
+      const depositInfo = latestNotification.data.depositInfo;
+      const isMixer = latestNotification.type.toString().includes('mixer') || latestNotification.data?.note;
+
+      setTransactionModal({
+        isOpen: true,
+        transaction: {
+          type: isMixer ? 'mix' : 'deposit',
+          contractAddress: depositInfo.contract,
+          amount: depositInfo.amount,
+          params: depositInfo.params,
+          intentId: latestNotification.data.intentId,
+        },
+      });
+    }
+  }, [notifications]);
 
   const handleSend = async () => {
     if (!input.trim() || isSending) return;
@@ -122,7 +161,7 @@ export default function ChatPage() {
                     type="text"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+                    onKeyDown={(e) => e.key === 'Enter' && handleSend()}
                     placeholder="Escribe un comando (ej: /help, /pay, /wallet)"
                     disabled={isSending || !isConnected}
                     className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
@@ -265,6 +304,22 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+
+      {/* Transaction Modal */}
+      <TransactionModal
+        isOpen={transactionModal.isOpen}
+        transaction={transactionModal.transaction}
+        onClose={() => setTransactionModal({ isOpen: false, transaction: null })}
+      />
+
+      {/* Toast Notifications */}
+      <ToastContainer
+        notifications={toastNotifications}
+        onDismiss={(id) => {
+          setToastNotifications((prev) => prev.filter((n) => n.id !== id));
+          markAsRead(id);
+        }}
+      />
     </div>
   );
 }

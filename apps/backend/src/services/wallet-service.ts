@@ -35,8 +35,9 @@ export class WalletService {
     return signature;
   }
 
-  async getBalance(): Promise<string> {
-    const balance = await this.provider.getBalance(this.wallet.address);
+  async getBalance(address?: string): Promise<string> {
+    const targetAddress = address || this.wallet.address;
+    const balance = await this.provider.getBalance(targetAddress);
     return ethers.formatEther(balance);
   }
 

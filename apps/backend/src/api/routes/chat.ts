@@ -42,13 +42,11 @@ export const chatRoutes: FastifyPluginAsync = async (server) => {
     } catch (error) {
       server.log.error({ error }, '[ChatRoutes] Error sending message');
 
-      const response: ApiResponse = {
+      return reply.code(500).send({
         status: 'error',
         code: 'INTERNAL_ERROR',
         message: error instanceof Error ? error.message : 'Failed to send message',
-      };
-
-      return reply.code(500).send(response);
+      } as ApiResponse<SendMessageResponse>);
     }
   });
 
@@ -76,13 +74,11 @@ export const chatRoutes: FastifyPluginAsync = async (server) => {
     } catch (error) {
       server.log.error({ error }, '[ChatRoutes] Error getting chat history');
 
-      const response: ApiResponse = {
+      return reply.code(500).send({
         status: 'error',
         code: 'INTERNAL_ERROR',
         message: error instanceof Error ? error.message : 'Failed to get chat history',
-      };
-
-      return reply.code(500).send(response);
+      } as ApiResponse<GetChatHistoryResponse>);
     }
   });
 

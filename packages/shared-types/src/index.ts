@@ -39,7 +39,7 @@ export type Currency = 'CRO' | 'WCRO' | 'USDC' | 'USDT';
 /**
  * Intent lifecycle status
  */
-export type IntentStatus = 'pending' | 'funded' | 'executed' | 'failed';
+export type IntentStatus = 'pending' | 'funded' | 'executed' | 'failed' | 'cancelled';
 
 /**
  * Condition types for payment execution
@@ -451,13 +451,18 @@ export enum NotificationType {
   PAYMENT_SENT = 'payment_sent',
   DEPOSIT_CONFIRMED = 'deposit_confirmed',
   WITHDRAWAL_READY = 'withdrawal_ready',
+  INTENT_CREATED = 'intent_created',
   INTENT_FUNDED = 'intent_funded',
   INTENT_EXECUTED = 'intent_executed',
+  INTENT_FAILED = 'intent_failed',
+  INTENT_CANCELLED = 'intent_cancelled',
   BATCH_PROGRESS = 'batch_progress',
   BATCH_COMPLETE = 'batch_complete',
   TRANSACTION_PENDING = 'transaction_pending',
   TRANSACTION_CONFIRMED = 'transaction_confirmed',
   TRANSACTION_FAILED = 'transaction_failed',
+  MIXER_DEPOSIT_READY = 'mixer_deposit_ready',
+  MIXER_WITHDRAW_READY = 'mixer_withdraw_ready',
   PRICE_ALERT = 'price_alert',
   SECURITY_ALERT = 'security_alert',
 }

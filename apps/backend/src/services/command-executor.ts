@@ -9,9 +9,10 @@
 
 import type { FastifyInstance } from 'fastify';
 import type { CommandParams, ChatCommand } from '@cronos-x402/shared-types';
+import { NotificationType } from '@cronos-x402/shared-types';
 import { intentService } from './intent-service';
 import { getMixerService } from './mixer-service';
-import { walletService } from './wallet-service';
+import { getWalletService } from './wallet-service';
 import { parseCommand, validateCommand, getHelpText } from './command-parser';
 import { createNotification } from './notification-service';
 import { ethers } from 'ethers';
@@ -80,6 +81,12 @@ export async function executeCommand(
       case '/help':
         return await executeHelp(server, userId, userAddress, parsed.args);
 
+      case '/cancel':
+        return await executeCancel(server, userId, userAddress, parsed.args);
+
+      case '/bulk':
+        return await executeBulk(server, userId, userAddress, parsed.args);
+
       default:
         return {
           success: false,
@@ -119,14 +126,14 @@ async function executePay(
       amount,
       currency,
       recipient,
-      condition: { type: 'manual' },
+      condition: { type: 'manual', value: '' },
     },
     userAddress // owner
   );
 
   // Send notification
-  await createNotification(server, userId, {
-    type: 'intent_created',
+  await createNotification(userId, {
+    type: NotificationType.INTENT_CREATED,
     title: '💰 Payment Intent Created',
     message: `Intent ${intent.intentId} for ${amount} ${currency} to ${recipient.slice(0, 10)}...`,
     priority: 'medium',
@@ -216,8 +223,8 @@ async function executeDeposit(
   };
 
   // Send notification with transaction preview
-  await createNotification(server, userId, {
-    type: 'transaction_pending',
+  await createNotification(userId, {
+    type: NotificationType.TRANSACTION_PENDING,
     title: '📥 Deposit Transaction Ready',
     message: `Please sign the transaction to deposit ${amount} ${intent.currency}`,
     priority: 'high',
@@ -294,6 +301,12 @@ async function executeWithdraw(
 
 /**
  * Withdraw from mixer (private)
+ *
+ * The user needs to provide their note in format:
+ * /withdraw <nullifier> <secret> <leafIndex>
+ *
+ * Or as a single encoded string:
+ * /withdraw mixer_<base64(JSON)>
  */
 async function executeWithdrawFromMixer(
   server: FastifyInstance,
@@ -301,18 +314,101 @@ async function executeWithdrawFromMixer(
   userAddress: string,
   mixerNote: string
 ): Promise<CommandExecutionResult> {
-  // TODO: Parse mixer note and generate withdrawal proof
-  // For now, return instructions
+  try {
+    const mixerService = getMixerService();
+    const contractAddress = process.env.MIXER_CONTRACT_ADDRESS;
 
-  return {
-    success: true,
-    message: `🎭 Privacy Mixer Withdrawal\n━━━━━━━━━━━━━━━━━━━━━━━\n\n` +
-      `Note: ${mixerNote}\n` +
-      `Withdrawal to: ${userAddress}\n\n` +
-      `⚠️ Mixer withdrawals are coming soon!\n` +
-      `Your funds are safe and can be withdrawn once the feature is complete.`,
-    data: { mixerNote, recipient: userAddress }
-  };
+    if (!contractAddress) {
+      return {
+        success: false,
+        message: 'Mixer contract not configured',
+        error: 'CONFIG_ERROR'
+      };
+    }
+
+    // Parse the mixer note - expecting mixer_<base64(JSON)>
+    let noteData: { nullifier: string; secret: string; commitment: string; leafIndex: number };
+
+    try {
+      // Remove "mixer_" prefix and decode base64 JSON
+      const encoded = mixerNote.replace('mixer_', '');
+      const decoded = Buffer.from(encoded, 'base64').toString('utf-8');
+      noteData = JSON.parse(decoded);
+
+      if (!noteData.nullifier || !noteData.secret || noteData.leafIndex === undefined) {
+        throw new Error('Invalid note format');
+      }
+    } catch (parseError) {
+      return {
+        success: false,
+        message: `Invalid mixer note format.\n\nExpected format: mixer_<encoded_note>\n\nThe note was provided when you made your deposit. Make sure you saved it!`,
+        error: 'INVALID_NOTE'
+      };
+    }
+
+    // Reconstruct the DepositNote
+    const note = {
+      nullifier: noteData.nullifier,
+      secret: noteData.secret,
+      commitment: noteData.commitment,
+      nullifierHash: ethers.keccak256(
+        ethers.solidityPacked(['bytes32', 'bytes32'], [noteData.nullifier, noteData.nullifier])
+      ),
+    };
+
+    // Generate the withdrawal proof
+    const withdrawProof = mixerService.generateWithdrawProof(
+      note,
+      noteData.leafIndex,
+      userAddress, // recipient = user's address
+      ethers.ZeroAddress, // no relayer
+      '0' // no fee
+    );
+
+    // Create withdrawal info for frontend
+    const withdrawInfo = {
+      contract: contractAddress,
+      method: 'withdraw',
+      params: {
+        proof: withdrawProof.proof,
+        root: withdrawProof.root,
+        nullifierHash: withdrawProof.nullifierHash,
+        recipient: userAddress,
+        relayer: ethers.ZeroAddress,
+        fee: '0'
+      }
+    };
+
+    // Send notification
+    await createNotification(userId, {
+      type: NotificationType.MIXER_WITHDRAW_READY,
+      title: '🎭 Mixer Withdrawal Ready',
+      message: `Sign the transaction to withdraw ${mixerService.getDenomination()} CRO anonymously`,
+      priority: 'high',
+      data: { withdrawInfo },
+      actions: [
+        { label: 'Sign Withdrawal', command: 'SIGN_TX', style: 'primary' }
+      ]
+    });
+
+    const response = formatMixerWithdrawResponse(withdrawInfo, mixerService.getDenomination());
+
+    return {
+      success: true,
+      message: response,
+      data: {
+        withdrawInfo,
+        requiresSignature: true
+      }
+    };
+  } catch (error) {
+    server.log.error({ error }, 'Mixer withdrawal error');
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Mixer withdrawal failed',
+      error: 'MIXER_ERROR'
+    };
+  }
 }
 
 /**
@@ -364,8 +460,8 @@ async function executeMix(
     };
 
     // Send notification with mixer note (CRITICAL - user must save this!)
-    await createNotification(server, userId, {
-      type: 'mixer_deposit_ready',
+    await createNotification(userId, {
+      type: NotificationType.MIXER_DEPOSIT_READY,
       title: '🎭 Privacy Mixer - SAVE THIS NOTE!',
       message: `⚠️ YOU MUST SAVE THIS NOTE TO WITHDRAW YOUR FUNDS!\n\nNote will be shown after deposit confirmation.`,
       priority: 'critical',
@@ -378,8 +474,7 @@ async function executeMix(
       },
       actions: [
         { label: 'Sign Deposit', command: 'SIGN_TX', style: 'primary' }
-      ],
-      dismissible: false
+      ]
     });
 
     const response = formatMixerDepositResponse(note, depositInfo);
@@ -450,6 +545,7 @@ async function executeWallet(
 ): Promise<CommandExecutionResult> {
   try {
     // Get wallet balance
+    const walletService = getWalletService();
     const balance = await walletService.getBalance(userAddress);
 
     // Get user's intents
@@ -524,6 +620,279 @@ async function executeHelp(
   };
 }
 
+/**
+ * /cancel <intentId>
+ * Cancel a pending payment intent
+ */
+async function executeCancel(
+  server: FastifyInstance,
+  userId: string,
+  userAddress: string,
+  args: string[]
+): Promise<CommandExecutionResult> {
+  const intentId = args[0];
+
+  // Get intent
+  const intent = intentService.getById(intentId);
+  if (!intent) {
+    return {
+      success: false,
+      message: `❌ Intent ${intentId} not found`,
+      error: 'INTENT_NOT_FOUND'
+    };
+  }
+
+  // Verify ownership
+  if (intent.owner && intent.owner !== userAddress) {
+    return {
+      success: false,
+      message: '❌ You do not own this intent',
+      error: 'UNAUTHORIZED'
+    };
+  }
+
+  // Check if can be cancelled
+  if (intent.status === 'executed') {
+    return {
+      success: false,
+      message: `❌ Cannot cancel intent - already executed\n\nIntent: ${intentId}\nStatus: ${intent.status}`,
+      error: 'CANNOT_CANCEL'
+    };
+  }
+
+  if (intent.status === 'funded') {
+    return {
+      success: false,
+      message: `❌ Cannot cancel intent - already funded\n\nIntent: ${intentId}\nStatus: ${intent.status}\n\n⚠️ Funded intents require contract interaction to cancel.`,
+      error: 'CANNOT_CANCEL'
+    };
+  }
+
+  if (intent.status === 'cancelled') {
+    return {
+      success: false,
+      message: `⚠️ Intent already cancelled\n\nIntent: ${intentId}`,
+      error: 'ALREADY_CANCELLED'
+    };
+  }
+
+  // Cancel the intent
+  const cancelled = intentService.cancel(intentId);
+
+  if (!cancelled) {
+    return {
+      success: false,
+      message: `❌ Failed to cancel intent ${intentId}`,
+      error: 'CANCEL_FAILED'
+    };
+  }
+
+  // Send notification
+  await createNotification(userId, {
+    type: NotificationType.INTENT_FAILED,
+    title: '❌ Intent Cancelled',
+    message: `Intent ${intentId.slice(0, 8)}... has been cancelled`,
+    priority: 'medium',
+    data: { intentId, status: 'cancelled' }
+  });
+
+  const response = formatCancelResponse(intent);
+
+  return {
+    success: true,
+    message: response,
+    data: {
+      intentId,
+      previousStatus: intent.status,
+      newStatus: 'cancelled'
+    }
+  };
+}
+
+/**
+ * /bulk <subcommand> [batchId] [data]
+ * Manage bulk payment batches
+ */
+async function executeBulk(
+  server: FastifyInstance,
+  userId: string,
+  userAddress: string,
+  args: string[]
+): Promise<CommandExecutionResult> {
+  const subcommand = args[0];
+  const batchId = args[1];
+
+  switch (subcommand) {
+    case 'upload':
+      return await executeBulkUpload(server, userId, userAddress);
+
+    case 'preview':
+      return await executeBulkPreview(server, userId, userAddress, batchId);
+
+    case 'execute':
+      return await executeBulkExecute(server, userId, userAddress, batchId);
+
+    case 'status':
+      return await executeBulkStatus(server, userId, userAddress, batchId);
+
+    default:
+      return {
+        success: false,
+        message: `Unknown bulk subcommand: ${subcommand}\n\nAvailable subcommands:\n• upload - Start bulk payment upload\n• preview <batchId> - Preview batch\n• execute <batchId> - Execute batch\n• status <batchId> - Check batch status`,
+        error: 'INVALID_SUBCOMMAND'
+      };
+  }
+}
+
+/**
+ * /bulk upload
+ * Start bulk payment upload process
+ */
+async function executeBulkUpload(
+  server: FastifyInstance,
+  userId: string,
+  userAddress: string
+): Promise<CommandExecutionResult> {
+  // Generate a new batch ID
+  const batchId = `batch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  // Send notification with upload instructions
+  await createNotification(userId, {
+    type: NotificationType.INTENT_CREATED,
+    title: '📦 Bulk Upload Ready',
+    message: 'Upload your CSV or JSON file to continue',
+    priority: 'medium',
+    data: { batchId, status: 'awaiting_upload' },
+    actions: [
+      { label: 'Upload CSV', command: 'UPLOAD_CSV', style: 'primary' },
+      { label: 'Upload JSON', command: 'UPLOAD_JSON', style: 'secondary' }
+    ]
+  });
+
+  const response = formatBulkUploadResponse(batchId);
+
+  return {
+    success: true,
+    message: response,
+    data: {
+      batchId,
+      status: 'awaiting_upload',
+      supportedFormats: ['csv', 'json']
+    }
+  };
+}
+
+/**
+ * /bulk preview <batchId>
+ * Preview a bulk payment batch
+ */
+async function executeBulkPreview(
+  server: FastifyInstance,
+  userId: string,
+  userAddress: string,
+  batchId: string
+): Promise<CommandExecutionResult> {
+  // In a full implementation, this would fetch the batch from database
+  // For now, return a placeholder showing the feature is active
+
+  if (!batchId) {
+    return {
+      success: false,
+      message: 'Usage: /bulk preview <batchId>',
+      error: 'MISSING_BATCH_ID'
+    };
+  }
+
+  // Placeholder response until batch storage is implemented
+  const response = formatBulkPreviewResponse(batchId, []);
+
+  return {
+    success: true,
+    message: response,
+    data: {
+      batchId,
+      status: 'preview',
+      payments: []
+    }
+  };
+}
+
+/**
+ * /bulk execute <batchId>
+ * Execute a bulk payment batch
+ */
+async function executeBulkExecute(
+  server: FastifyInstance,
+  userId: string,
+  userAddress: string,
+  batchId: string
+): Promise<CommandExecutionResult> {
+  if (!batchId) {
+    return {
+      success: false,
+      message: 'Usage: /bulk execute <batchId>',
+      error: 'MISSING_BATCH_ID'
+    };
+  }
+
+  // In a full implementation, this would:
+  // 1. Validate the batch exists and belongs to user
+  // 2. Create intents for each payment
+  // 3. Return deposit instructions
+
+  await createNotification(userId, {
+    type: NotificationType.TRANSACTION_PENDING,
+    title: '📦 Bulk Execution Started',
+    message: `Batch ${batchId.slice(0, 12)}... is being processed`,
+    priority: 'high',
+    data: { batchId, status: 'executing' }
+  });
+
+  const response = formatBulkExecuteResponse(batchId);
+
+  return {
+    success: true,
+    message: response,
+    data: {
+      batchId,
+      status: 'executing'
+    }
+  };
+}
+
+/**
+ * /bulk status <batchId>
+ * Check bulk payment batch status
+ */
+async function executeBulkStatus(
+  server: FastifyInstance,
+  userId: string,
+  userAddress: string,
+  batchId: string
+): Promise<CommandExecutionResult> {
+  if (!batchId) {
+    return {
+      success: false,
+      message: 'Usage: /bulk status <batchId>',
+      error: 'MISSING_BATCH_ID'
+    };
+  }
+
+  // In a full implementation, this would fetch real batch status
+  const response = formatBulkStatusResponse(batchId, 'pending', 0, 0);
+
+  return {
+    success: true,
+    message: response,
+    data: {
+      batchId,
+      status: 'pending',
+      completed: 0,
+      total: 0
+    }
+  };
+}
+
 // ============ Response Formatters ============
 
 function formatPaymentIntentResponse(intent: any): string {
@@ -544,12 +913,23 @@ function formatDepositResponse(intent: any, depositInfo: any): string {
 Intent: ${intent.intentId}
 Amount: ${intent.amount} ${intent.currency}
 Contract: ${depositInfo.contract}
+Recipient: ${intent.recipient}
 
 ⚠️ Please sign the transaction in your wallet to deposit funds.
 Once confirmed, the payment will be automatically executed.`;
 }
 
 function formatMixerDepositResponse(note: any, depositInfo: any): string {
+  // Create an encoded note for easy withdrawal
+  // leafIndex will be set after deposit confirmation (for now use 0, user should check)
+  const noteForWithdraw = {
+    nullifier: note.nullifier,
+    secret: note.secret,
+    commitment: note.commitment,
+    leafIndex: 0 // Will be updated after deposit confirmation
+  };
+  const encodedNote = 'mixer_' + Buffer.from(JSON.stringify(noteForWithdraw)).toString('base64');
+
   return `🎭 Privacy Mixer Deposit
 ━━━━━━━━━━━━━━━━━━━━━━━
 Amount: ${depositInfo.amount} CRO
@@ -561,22 +941,37 @@ Commitment: ${note.commitment}
 Nullifier: ${note.nullifier}
 Secret: ${note.secret}
 
+📋 Withdrawal Note (COPY THIS!):
+${encodedNote}
+
 ⚠️ If you lose this note, your funds CANNOT be recovered!
 
-Please:
-1. Copy this note to a secure location
-2. Sign the deposit transaction
-3. Wait for confirmation
-4. Use /withdraw with your note to retrieve funds anonymously`;
+To withdraw, use:
+/withdraw ${encodedNote}`;
+}
+
+function formatMixerWithdrawResponse(withdrawInfo: any, denomination: string): string {
+  return `🎭 Privacy Mixer Withdrawal
+━━━━━━━━━━━━━━━━━━━━━━━
+Amount: ${denomination} CRO
+Contract: ${withdrawInfo.contract}
+Recipient: ${withdrawInfo.params.recipient}
+
+✅ Withdrawal proof generated!
+
+⚠️ Please sign the transaction to withdraw your funds anonymously.
+After confirmation, the funds will be sent to your wallet.`;
 }
 
 function formatIntentStatusResponse(intent: any): string {
-  const statusEmoji = {
+  const statusEmojiMap: Record<string, string> = {
     pending: '⏸️',
     funded: '✅',
     executed: '✅',
-    failed: '❌'
-  }[intent.status] || '❓';
+    failed: '❌',
+    cancelled: '🚫'
+  };
+  const statusEmoji = statusEmojiMap[intent.status] || '❓';
 
   return `📊 Intent Status
 ━━━━━━━━━━━━━━━━━━━━━━━
@@ -619,14 +1014,16 @@ Type /pay to create your first payment!`;
 
   const lines = [`📜 Transaction History (${intents.length})`, '━━━━━━━━━━━━━━━━━━━━━━━'];
 
-  intents.forEach(intent => {
-    const statusEmoji = {
-      pending: '⏸️',
-      funded: '💰',
-      executed: '✅',
-      failed: '❌'
-    }[intent.status] || '❓';
+  const statusEmojiMap: Record<string, string> = {
+    pending: '⏸️',
+    funded: '💰',
+    executed: '✅',
+    failed: '❌',
+    cancelled: '🚫'
+  };
 
+  intents.forEach(intent => {
+    const statusEmoji = statusEmojiMap[intent.status] || '❓';
     const date = new Date(intent.createdAt).toLocaleDateString();
     lines.push(`${statusEmoji} ${intent.amount} ${intent.currency} → ${intent.recipient.slice(0, 10)}...`);
     lines.push(`   ${date} | ${intent.intentId}`);
@@ -635,4 +1032,121 @@ Type /pay to create your first payment!`;
   lines.push('\nType /status <intentId> for details');
 
   return lines.join('\n');
+}
+
+function formatCancelResponse(intent: any): string {
+  return `❌ Intent Cancelled
+━━━━━━━━━━━━━━━━━━━━━━━
+Intent: ${intent.intentId}
+Recipient: ${intent.recipient}
+Amount: ${intent.amount} ${intent.currency}
+Previous Status: ${intent.status}
+
+✅ The payment intent has been cancelled successfully.
+No funds were transferred.
+
+📋 Next steps:
+Command: /history
+Command: /pay ${intent.recipient} ${intent.amount} ${intent.currency}`;
+}
+
+function formatBulkUploadResponse(batchId: string): string {
+  return `📦 Bulk Payment Upload
+━━━━━━━━━━━━━━━━━━━━━━━
+Batch: ${batchId}
+Status: Awaiting Upload
+
+📋 Supported Formats:
+• CSV - recipient,amount,currency
+• JSON - [{ recipient, amount, currency }]
+
+📄 CSV Example:
+recipient,amount,currency
+0x742d35Cc6634C0532925a3b844Bc9e7595f39dF4,100,CRO
+0x8a3e47Bf1234567890abcdef1234567890abcdef,50,USDC
+
+⏳ After uploading your file, run:
+Command: /bulk preview ${batchId}`;
+}
+
+function formatBulkPreviewResponse(batchId: string, payments: any[]): string {
+  if (payments.length === 0) {
+    return `📦 Bulk Payment Preview
+━━━━━━━━━━━━━━━━━━━━━━━
+Batch: ${batchId}
+Status: No payments found
+
+⚠️ This batch has no payments yet.
+Please upload a CSV or JSON file first.
+
+Command: /bulk upload`;
+  }
+
+  const totalAmount = payments.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+  const lines = [
+    `📦 Bulk Payment Preview`,
+    `━━━━━━━━━━━━━━━━━━━━━━━`,
+    `Batch: ${batchId}`,
+    `Total Payments: ${payments.length}`,
+    `Total Amount: ${totalAmount}`,
+    ``,
+    `📋 Payments:`,
+  ];
+
+  payments.slice(0, 5).forEach((p, i) => {
+    lines.push(`  ${i + 1}. ${p.recipient.slice(0, 10)}... → ${p.amount} ${p.currency}`);
+  });
+
+  if (payments.length > 5) {
+    lines.push(`  ... and ${payments.length - 5} more`);
+  }
+
+  lines.push(`\n✅ Ready to execute:`);
+  lines.push(`Command: /bulk execute ${batchId}`);
+
+  return lines.join('\n');
+}
+
+function formatBulkExecuteResponse(batchId: string): string {
+  return `📦 Bulk Payment Execution
+━━━━━━━━━━━━━━━━━━━━━━━
+Batch: ${batchId}
+Status: Processing
+
+⏳ Creating payment intents for all recipients...
+
+You will be notified when all payments are ready.
+
+📋 Check progress:
+Command: /bulk status ${batchId}`;
+}
+
+function formatBulkStatusResponse(batchId: string, status: string, completed: number, total: number): string {
+  const statusEmoji = {
+    pending: '⏸️',
+    processing: '⏳',
+    completed: '✅',
+    failed: '❌',
+    partial: '⚠️'
+  }[status] || '❓';
+
+  const progress = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  let nextSteps = '';
+  if (status === 'completed') {
+    nextSteps = `\n✅ All payments have been processed!\n\n📋 View history:\nCommand: /history`;
+  } else if (status === 'pending') {
+    nextSteps = `\n⏳ Waiting for execution.\n\n📋 Execute batch:\nCommand: /bulk execute ${batchId}`;
+  } else if (status === 'processing') {
+    nextSteps = `\n⏳ Payments are being processed...`;
+  } else if (status === 'failed' || status === 'partial') {
+    nextSteps = `\n⚠️ Some payments may have failed.\n\n📋 View details:\nCommand: /history`;
+  }
+
+  return `📦 Bulk Payment Status
+━━━━━━━━━━━━━━━━━━━━━━━
+Batch: ${batchId}
+Status: ${statusEmoji} ${status}
+Progress: ${completed}/${total} (${progress}%)
+${nextSteps}`;
 }

@@ -59,6 +59,23 @@ class IntentService {
     const intent = this.intents.get(intentId);
     return intent?.owner === owner;
   }
+
+  /**
+   * Cancel a pending intent
+   * Only pending (unfunded) intents can be cancelled
+   */
+  cancel(intentId: string): boolean {
+    const intent = this.intents.get(intentId);
+    if (!intent) return false;
+
+    // Only pending intents can be cancelled
+    if (intent.status !== 'pending') {
+      return false;
+    }
+
+    intent.status = 'cancelled' as IntentStatus;
+    return true;
+  }
 }
 
 export const intentService = new IntentService();
